@@ -11,7 +11,7 @@ import genanki
 BASE_DIR = '/home/samusanc/samusanc/anki'
 CARDS_FILE = os.path.join(BASE_DIR, 'cards.txt')
 AUDIOS_DIR = os.path.join(BASE_DIR, 'audios')
-OUTPUT_APKG = os.path.join(BASE_DIR, 'vocabulario_japones.apkg')
+OUTPUT_APKG = os.path.join(BASE_DIR, 'vocabulario_japones_v2.apkg')
 
 # Helper functions for word cleaning
 def clean_japanese_word(word):
@@ -99,11 +99,11 @@ def post_process_apkg(apkg_path, limit=40):
         shutil.rmtree(temp_dir)
 
 def main():
-    # 1. Define separate models for each direction (Japonés -> Español and Español -> Japonés)
-    model_id_a = 1607392321
+    # 1. Define separate models for each direction with new IDs
+    model_id_a = 1607392331
     model_a = genanki.Model(
         model_id_a,
-        'Japonés → Español Model',
+        'Japonés → Español Model v2',
         fields=[
             {'name': 'Kana'},
             {'name': 'Kanji'},
@@ -186,10 +186,10 @@ def main():
         '''
     )
 
-    model_id_b = 1607392322
+    model_id_b = 1607392332
     model_b = genanki.Model(
         model_id_b,
-        'Español → Japonés Model',
+        'Español → Japonés Model v2',
         fields=[
             {'name': 'Kana'},
             {'name': 'Kanji'},
@@ -272,11 +272,11 @@ def main():
         '''
     )
 
-    # 2. Initialize the Deck
-    deck_id = 202606121
+    # 2. Initialize the Deck with new ID
+    deck_id = 202606123
     my_deck = genanki.Deck(
         deck_id,
-        'Vocabulario Japonés (Minna no Nihongo)'
+        'Vocabulario Japonés (Minna no Nihongo) v2'
     )
 
     # 3. Read and parse cards.txt

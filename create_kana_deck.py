@@ -11,7 +11,7 @@ import genanki
 BASE_DIR = '/home/samusanc/samusanc/anki'
 CARDS_FILE = os.path.join(BASE_DIR, 'cards.txt')
 AUDIOS_DIR = os.path.join(BASE_DIR, 'audios')
-OUTPUT_APKG = os.path.join(BASE_DIR, 'vocabulario_japones_kana.apkg')
+OUTPUT_APKG = os.path.join(BASE_DIR, 'vocabulario_japones_kana_v2.apkg')
 
 # Helper functions for word cleaning
 def clean_japanese_word(word):
@@ -99,11 +99,11 @@ def post_process_apkg(apkg_path, limit=40):
         shutil.rmtree(temp_dir)
 
 def main():
-    # 1. Define separate models for each direction (Kana -> Español and Español -> Kana)
-    model_id_a = 1607392323
+    # 1. Define separate models for each direction with new IDs
+    model_id_a = 1607392333
     model_a = genanki.Model(
         model_id_a,
-        'Kana → Español Model',
+        'Kana → Español Model v2',
         fields=[
             {'name': 'Kana'},
             {'name': 'Español'},
@@ -178,10 +178,10 @@ def main():
         '''
     )
 
-    model_id_b = 1607392324
+    model_id_b = 1607392334
     model_b = genanki.Model(
         model_id_b,
-        'Español → Kana Model',
+        'Español → Kana Model v2',
         fields=[
             {'name': 'Kana'},
             {'name': 'Español'},
@@ -256,11 +256,11 @@ def main():
         '''
     )
 
-    # 2. Initialize the Deck
-    deck_id = 202606122
+    # 2. Initialize the Deck with new ID
+    deck_id = 202606124
     my_deck = genanki.Deck(
         deck_id,
-        'Vocabulario Japonés (Solo Kana)'
+        'Vocabulario Japonés (Solo Kana) v2'
     )
 
     # 3. Read and parse cards.txt
