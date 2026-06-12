@@ -37,7 +37,7 @@ def sanitize_tag(unit):
     return tag
 
 def post_process_apkg(apkg_path, limit=40):
-    """Unzip apkg, update default new card limit in sqlite database, update card sorting (due field), and zip back."""
+    """Unzip apkg, update default new card limit in sqlite database, update card sorting (due field) for separate notes, and zip back."""
     temp_dir = tempfile.mkdtemp()
     try:
         # 1. Unzip the apkg
@@ -59,26 +59,30 @@ def post_process_apkg(apkg_path, limit=40):
                 print(f"Post-processing: Updated daily new cards limit to {limit} for config {config_id}.")
         cursor.execute('UPDATE col SET dconf = ?;', (json.dumps(dconf),))
         
-        # 2.2 Update card sorting order (due field) to alternate blocks of 4
+        # 2.2 Update card sorting order (due field) for separate notes
         cursor.execute('SELECT id FROM notes ORDER BY id;')
         note_ids = [row[0] for row in cursor.fetchall()]
-        print(f"Post-processing: Found {len(note_ids)} notes to order.")
+        total_words = len(note_ids) // 2
+        print(f"Post-processing: Found {len(note_ids)} notes ({total_words} words) to order.")
         
-        for n, nid in enumerate(note_ids):
+        for n in range(total_words):
+            nid_a = note_ids[2 * n]      # Japonés -> Español (Note A)
+            nid_b = note_ids[2 * n + 1]  # Español -> Japonés (Note B)
+            
             block_idx = n // 8
             pos_in_block = n % 8
             
             if pos_in_block < 4:
-                # First 4 notes of the block
-                due_ord_1 = block_idx * 16 + pos_in_block          # Card 2 (Spanish -> Japonés) is shown first
-                due_ord_0 = block_idx * 16 + 12 + pos_in_block     # Card 1 (Japonés -> Spanish) is shown later
+                # First 4 words of the block: B (Español -> Japonés) first, A (Japonés -> Español) later
+                due_b = block_idx * 16 + pos_in_block
+                due_a = block_idx * 16 + 12 + pos_in_block
             else:
-                # Last 4 notes of the block
-                due_ord_0 = block_idx * 16 + pos_in_block          # Card 1 (Japonés -> Spanish) is shown first
-                due_ord_1 = block_idx * 16 + 4 + pos_in_block      # Card 2 (Spanish -> Japonés) is shown later
+                # Last 4 words of the block: A (Japonés -> Español) first, B (Español -> Japonés) later
+                due_a = block_idx * 16 + pos_in_block
+                due_b = block_idx * 16 + 4 + pos_in_block
                 
-            cursor.execute('UPDATE cards SET due = ? WHERE nid = ? AND ord = 0;', (due_ord_0, nid))
-            cursor.execute('UPDATE cards SET due = ? WHERE nid = ? AND ord = 1;', (due_ord_1, nid))
+            cursor.execute('UPDATE cards SET due = ? WHERE nid = ?;', (due_a, nid_a))
+            cursor.execute('UPDATE cards SET due = ? WHERE nid = ?;', (due_b, nid_b))
             
         conn.commit()
         conn.close()
@@ -95,11 +99,11 @@ def post_process_apkg(apkg_path, limit=40):
         shutil.rmtree(temp_dir)
 
 def main():
-    # 1. Define the Anki Model with Two templates (Modalities)
-    model_id = 1607392319
-    my_model = genanki.Model(
-        model_id,
-        'Japonés Minna no Nihongo Model (Dos Vías)',
+    # 1. Define separate models for each direction (Japonés -> Español and Español -> Japonés)
+    model_id_a = 1607392321
+    model_a = genanki.Model(
+        model_id_a,
+        'Japonés → Español Model',
         fields=[
             {'name': 'Kana'},
             {'name': 'Kanji'},
@@ -125,7 +129,74 @@ def main():
                       <div class="audio-player">{{Audio}}</div>
                     </div>
                 ''',
-            },
+            }
+        ],
+        css='''
+            .card {
+              font-family: "Outfit", "Inter", "Helvetica Neue", Helvetica, Arial, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+              text-align: center;
+              color: #2c3e50;
+              background-color: #f8f9fa;
+              padding: 20px;
+            }
+
+            .card-container {
+              max-width: 450px;
+              margin: 0 auto;
+              padding: 30px;
+              background: white;
+              border-radius: 12px;
+              box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            }
+
+            .card-type {
+              font-size: 12px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              color: #bdc3c7;
+              margin-bottom: 15px;
+            }
+
+            .japanese-word {
+              font-size: 42px;
+              font-weight: 700;
+              color: #1a252f;
+              margin-bottom: 10px;
+            }
+
+            .kana-reading {
+              font-size: 24px;
+              color: #7f8c8d;
+              margin-bottom: 15px;
+            }
+
+            .meaning {
+              font-size: 20px;
+              font-weight: 500;
+              color: #2980b9;
+              margin-bottom: 20px;
+            }
+
+            hr {
+              border: 0;
+              height: 1px;
+              background-image: linear-gradient(to right, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0));
+              margin: 20px 0;
+            }
+        '''
+    )
+
+    model_id_b = 1607392322
+    model_b = genanki.Model(
+        model_id_b,
+        'Español → Japonés Model',
+        fields=[
+            {'name': 'Kana'},
+            {'name': 'Kanji'},
+            {'name': 'Español'},
+            {'name': 'Audio'},
+        ],
+        templates=[
             {
                 'name': 'Card 2 (Español → Japonés)',
                 'qfmt': '''
@@ -144,7 +215,7 @@ def main():
                       <div class="audio-player">{{Audio}}</div>
                     </div>
                 ''',
-            },
+            }
         ],
         css='''
             .card {
@@ -190,13 +261,6 @@ def main():
               font-size: 24px;
               color: #7f8c8d;
               margin-bottom: 15px;
-            }
-
-            .meaning {
-              font-size: 20px;
-              font-weight: 500;
-              color: #2980b9;
-              margin-bottom: 20px;
             }
 
             hr {
@@ -254,8 +318,10 @@ def main():
                         media_files.append(full_audio_path)
                     
                     tag = sanitize_tag(current_unit)
-                    note = genanki.Note(
-                        model=my_model,
+                    
+                    # Create Note A (Japonés -> Español)
+                    note_a = genanki.Note(
+                        model=model_a,
                         fields=[
                             kana,
                             kanji,
@@ -264,8 +330,23 @@ def main():
                         ],
                         tags=[tag]
                     )
-                    my_deck.add_note(note)
-                    notes_count += 1
+                    
+                    # Create Note B (Español -> Japonés)
+                    note_b = genanki.Note(
+                        model=model_b,
+                        fields=[
+                            kana,
+                            kanji,
+                            espanol,
+                            f"[sound:{audio_filename}]"
+                        ],
+                        tags=[tag]
+                    )
+                    
+                    # Add both notes to deck (Note A then Note B)
+                    my_deck.add_note(note_a)
+                    my_deck.add_note(note_b)
+                    notes_count += 2
 
     print(f"Prepared {notes_count} notes for the deck.")
 
@@ -275,7 +356,7 @@ def main():
     package.write_to_file(OUTPUT_APKG)
     print(f"Successfully generated Anki Deck Package: {OUTPUT_APKG}")
     
-    # 5. Apply SQLite post-processing (Limit to 40, alternate card sorting)
+    # 5. Apply SQLite post-processing
     post_process_apkg(OUTPUT_APKG, limit=40)
 
 if __name__ == '__main__':
