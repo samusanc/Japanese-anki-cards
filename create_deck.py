@@ -36,8 +36,8 @@ def sanitize_tag(unit):
     tag = unit.strip().replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
     return tag
 
-def update_apkg_card_limit(apkg_path, limit=40):
-    """Unzip apkg, update default new card limit in sqlite database, and zip back."""
+def post_process_apkg(apkg_path, limit=40):
+    """Unzip apkg, update default new card limit in sqlite database, update card sorting (due field), and zip back."""
     temp_dir = tempfile.mkdtemp()
     try:
         # 1. Unzip the apkg
@@ -48,17 +48,38 @@ def update_apkg_card_limit(apkg_path, limit=40):
         db_path = os.path.join(temp_dir, 'collection.anki2')
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        
+        # 2.1 Update daily new card limits to 40 in all configs
         cursor.execute('SELECT dconf FROM col;')
         dconf_str = cursor.fetchone()[0]
         dconf = json.loads(dconf_str)
-        
-        # Update daily limits to 40 in all configs
         for config_id in dconf:
             if 'new' in dconf[config_id]:
                 dconf[config_id]['new']['perDay'] = limit
                 print(f"Post-processing: Updated daily new cards limit to {limit} for config {config_id}.")
-                
         cursor.execute('UPDATE col SET dconf = ?;', (json.dumps(dconf),))
+        
+        # 2.2 Update card sorting order (due field) to alternate blocks of 4
+        cursor.execute('SELECT id FROM notes ORDER BY id;')
+        note_ids = [row[0] for row in cursor.fetchall()]
+        print(f"Post-processing: Found {len(note_ids)} notes to order.")
+        
+        for n, nid in enumerate(note_ids):
+            block_idx = n // 8
+            pos_in_block = n % 8
+            
+            if pos_in_block < 4:
+                # First 4 notes of the block
+                due_ord_1 = block_idx * 16 + pos_in_block          # Card 2 (Spanish -> Japonés) is shown first
+                due_ord_0 = block_idx * 16 + 12 + pos_in_block     # Card 1 (Japonés -> Spanish) is shown later
+            else:
+                # Last 4 notes of the block
+                due_ord_0 = block_idx * 16 + pos_in_block          # Card 1 (Japonés -> Spanish) is shown first
+                due_ord_1 = block_idx * 16 + 4 + pos_in_block      # Card 2 (Spanish -> Japonés) is shown later
+                
+            cursor.execute('UPDATE cards SET due = ? WHERE nid = ? AND ord = 0;', (due_ord_0, nid))
+            cursor.execute('UPDATE cards SET due = ? WHERE nid = ? AND ord = 1;', (due_ord_1, nid))
+            
         conn.commit()
         conn.close()
         
@@ -254,8 +275,8 @@ def main():
     package.write_to_file(OUTPUT_APKG)
     print(f"Successfully generated Anki Deck Package: {OUTPUT_APKG}")
     
-    # 5. Apply SQLite post-processing to update cards limit
-    update_apkg_card_limit(OUTPUT_APKG, limit=40)
+    # 5. Apply SQLite post-processing (Limit to 40, alternate card sorting)
+    post_process_apkg(OUTPUT_APKG, limit=40)
 
 if __name__ == '__main__':
     main()
