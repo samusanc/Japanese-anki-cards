@@ -7,13 +7,16 @@ BASE_DIR = '/home/samusanc/samusanc/anki'
 
 def run_git(args):
     print(f"Running: git {' '.join(args)}")
-    res = subprocess.run(['git'] + args, cwd=BASE_DIR, capture_output=True, text=True)
+    res = subprocess.run(['git'] + args, cwd=BASE_DIR, capture_output=True, text=True, encoding='utf-8')
     if res.returncode != 0:
         print(f"Error: {res.stderr}")
         return False, res.stderr
     return True, res.stdout
 
 def main():
+    # Configure git to not quote paths temporarily/globally for this run
+    run_git(['config', 'core.quotepath', 'false'])
+
     # 1. Get current branch name
     ok, stdout = run_git(['symbolic-ref', '--short', 'HEAD'])
     if ok:
@@ -40,6 +43,10 @@ def main():
     total_files = len(files)
     print(f"Found {total_files} files to commit.")
 
+    if total_files == 0:
+        print("No remaining files to commit.")
+        return
+
     batch_size = 10
     total_batches = (total_files + batch_size - 1) // batch_size
     
@@ -61,18 +68,10 @@ def main():
             sys.exit(1)
             
         # Push batch
-        # For the first push on a brand new repository, we might need -u origin <branch>
-        if i == 0:
-            push_ok, err = run_git(['push', '-u', 'origin', branch])
-        else:
-            push_ok, err = run_git(['push', 'origin', branch])
-            
+        push_ok, err = run_git(['push', 'origin', branch])
         if not push_ok:
             print(f"Failed to push batch {i+1}. Retrying push...")
-            if i == 0:
-                push_ok_retry, err_retry = run_git(['push', '-u', 'origin', branch])
-            else:
-                push_ok_retry, err_retry = run_git(['push', 'origin', branch])
+            push_ok_retry, err_retry = run_git(['push', 'origin', branch])
             if not push_ok_retry:
                 print("Push failed again. Aborting.")
                 sys.exit(1)
