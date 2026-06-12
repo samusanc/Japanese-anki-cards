@@ -1,5 +1,10 @@
 import os
 import re
+import sqlite3
+import json
+import zipfile
+import tempfile
+import shutil
 import genanki
 
 # Folders and paths
@@ -8,7 +13,7 @@ CARDS_FILE = os.path.join(BASE_DIR, 'cards.txt')
 AUDIOS_DIR = os.path.join(BASE_DIR, 'audios')
 OUTPUT_APKG = os.path.join(BASE_DIR, 'vocabulario_japones_kana.apkg')
 
-# Helper functions for word cleaning (same logic as clean_and_generate.py)
+# Helper functions for word cleaning
 def clean_japanese_word(word):
     word = word.strip()
     word = re.sub(r'\(お\)\s*', 'お', word)
@@ -31,12 +36,49 @@ def sanitize_tag(unit):
     tag = unit.strip().replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
     return tag
 
+def update_apkg_card_limit(apkg_path, limit=40):
+    """Unzip apkg, update default new card limit in sqlite database, and zip back."""
+    temp_dir = tempfile.mkdtemp()
+    try:
+        # 1. Unzip the apkg
+        with zipfile.ZipFile(apkg_path, 'r') as zf:
+            zf.extractall(temp_dir)
+            
+        # 2. Modify collection.anki2
+        db_path = os.path.join(temp_dir, 'collection.anki2')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT dconf FROM col;')
+        dconf_str = cursor.fetchone()[0]
+        dconf = json.loads(dconf_str)
+        
+        # Update daily limits to 40 in all configs
+        for config_id in dconf:
+            if 'new' in dconf[config_id]:
+                dconf[config_id]['new']['perDay'] = limit
+                print(f"Post-processing: Updated daily new cards limit to {limit} for config {config_id}.")
+                
+        cursor.execute('UPDATE col SET dconf = ?;', (json.dumps(dconf),))
+        conn.commit()
+        conn.close()
+        
+        # 3. Zip it back
+        with zipfile.ZipFile(apkg_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, temp_dir)
+                    zf.write(file_path, arcname)
+        print(f"Post-processing: Successfully wrote changes back to {apkg_path}")
+    finally:
+        shutil.rmtree(temp_dir)
+
 def main():
-    # 1. Define the Anki Model (Solo Kana)
+    # 1. Define the Anki Model (Solo Kana) with Two templates (Modalities)
     model_id = 1607392320
     my_model = genanki.Model(
         model_id,
-        'Japonés Solo Kana Model',
+        'Japonés Solo Kana Model (Dos Vías)',
         fields=[
             {'name': 'Kana'},
             {'name': 'Español'},
@@ -44,17 +86,37 @@ def main():
         ],
         templates=[
             {
-                'name': 'Card 1 (Reconocimiento Kana)',
+                'name': 'Card 1 (Kana → Español)',
                 'qfmt': '''
                     <div class="card-container">
+                      <div class="card-type">Kana → Español</div>
                       <div class="japanese-word">{{Kana}}</div>
                     </div>
                 ''',
                 'afmt': '''
                     <div class="card-container">
+                      <div class="card-type">Kana → Español</div>
                       <div class="japanese-word">{{Kana}}</div>
                       <hr id="answer">
                       <div class="meaning">{{Español}}</div>
+                      <div class="audio-player">{{Audio}}</div>
+                    </div>
+                ''',
+            },
+            {
+                'name': 'Card 2 (Español → Kana)',
+                'qfmt': '''
+                    <div class="card-container">
+                      <div class="card-type">Español → Kana</div>
+                      <div class="meaning-large">{{Español}}</div>
+                    </div>
+                ''',
+                'afmt': '''
+                    <div class="card-container">
+                      <div class="card-type">Español → Kana</div>
+                      <div class="meaning-large">{{Español}}</div>
+                      <hr id="answer">
+                      <div class="japanese-word">{{Kana}}</div>
                       <div class="audio-player">{{Audio}}</div>
                     </div>
                 ''',
@@ -78,10 +140,25 @@ def main():
               box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
             }
 
+            .card-type {
+              font-size: 12px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              color: #bdc3c7;
+              margin-bottom: 15px;
+            }
+
             .japanese-word {
               font-size: 42px;
               font-weight: 700;
               color: #1a252f;
+              margin-bottom: 10px;
+            }
+
+            .meaning-large {
+              font-size: 32px;
+              font-weight: 600;
+              color: #2980b9;
               margin-bottom: 10px;
             }
 
@@ -134,7 +211,6 @@ def main():
                     if kana.lower() == 'kana' or all(c in '- ' for c in kana):
                         continue
                     
-                    # Get correct audio filename based on the existing files
                     cleaned_kana = clean_japanese_word(kana)
                     cleaned_kanji = clean_japanese_word(kanji)
                     
@@ -144,13 +220,9 @@ def main():
                         audio_filename = f"{sanitize_filename(cleaned_kana)}_{sanitize_filename(cleaned_kanji)}.mp3"
                     
                     full_audio_path = os.path.join(AUDIOS_DIR, audio_filename)
-                    
                     if os.path.exists(full_audio_path):
                         media_files.append(full_audio_path)
-                    else:
-                        print(f"Warning: Audio file not found for {kana} | {kanji} (expected: {audio_filename})")
                     
-                    # Create note (Kana, Español, Audio)
                     tag = sanitize_tag(current_unit)
                     note = genanki.Note(
                         model=my_model,
@@ -170,9 +242,10 @@ def main():
     package = genanki.Package(my_deck)
     package.media_files = media_files
     package.write_to_file(OUTPUT_APKG)
-    
     print(f"Successfully generated Kana Anki Deck Package: {OUTPUT_APKG}")
-    print(f"Included {len(media_files)} audio files in the package.")
+    
+    # 5. Apply SQLite post-processing to update cards limit
+    update_apkg_card_limit(OUTPUT_APKG, limit=40)
 
 if __name__ == '__main__':
     main()
